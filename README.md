@@ -1,4 +1,4 @@
 # MOWGAN
 
 
-Ciao ciao ciao
+Da fare: mettere n_components come parametro
