@@ -1,5 +1,7 @@
 # MOWGAN
 
+## MultiOmic WGAN
+
 
 Da fare: mettere n_components come parametro
 
