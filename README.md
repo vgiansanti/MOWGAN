@@ -1,6 +1,9 @@
 # MOWGAN
 
-# Multi-Omics unpaired data based on Wasserstein Generative Adversarial Networks
+This project contains the Tensorflow implementation and documentation for the training of the Multi-Omics unpaired data based Wasserstein Generative Adversarial Network. 
+
+This document describes how to run the code on your data.
+
 
 ## MultiOmic WGAN
 
