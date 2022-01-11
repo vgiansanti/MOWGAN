@@ -1,6 +1,6 @@
 # MOWGAN
 
-Multi-Omics unpaired data based on Wasserstein Generative Adversarial Networks
+# Multi-Omics unpaired data based on Wasserstein Generative Adversarial Networks
 
 ## MultiOmic WGAN
 
