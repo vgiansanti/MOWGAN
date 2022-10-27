@@ -1,4 +1,4 @@
-# MOWGAN - Multi-Omics Wasserstein Generative Adversarial Network
+# MOWGAN: Multi-Omics Wasserstein Generative Adversarial Network
 
 ![Alt text](images/Mowgan_round.tiff)
 
