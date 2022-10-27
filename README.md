@@ -6,6 +6,7 @@ This project contains the Tensorflow implementation and documentation for the tr
 
 This document describes how to run the code on your data.
 
+![Alt text](images/Figure1.png)
 
 ## MultiOmic WGAN
 
