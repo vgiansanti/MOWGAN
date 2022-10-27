@@ -1,7 +1,7 @@
 # MOWGAN
 
 <p align="center"> 
-<img src="images/Mowgan_round.tiff" style="width: 50%; height: 50%"/>​
+<img src="MOWGAN/images/Mowgan_round.tiff" style="width: 50%; height: 50%"/>​
 </p>
 
 ![Alt text]("images/Mowgan_round.tiff")
