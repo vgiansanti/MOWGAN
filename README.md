@@ -6,15 +6,20 @@ MOWGAN is a deep learning framework for the generation of synthetic paired multi
 
 Once trained, the generative network is used to produce a new dataset where the observations are matched between all modalities. The synthetic dataset can be used for downstream analysis, first of all to bridge the original unpaired data.
 
+## Tutorials
+
+## Cheatsheet
+
+Relevant functions:
 
 ## MOWGAN workflow
 
+### Step 1: Train the model
 ![Alt text](images/Figure1.png)
 
-## MultiOmic WGAN
 
 
-Da fare: mettere n_components come parametro
+### Step 2: Train the model
 
-Parametri che ora possono davvero essere usati: method: 'hierarchical', 'bfs', 'random_walk'
-                                                embedding: 'pca' o 'umap'
+## Contact
+MOWGAN is maintained by Valentina Giansanti (giansanti.valentina@hsr.it) and Davide Cittaro (cittaro.davide@hsr.it). Please, reach us for problems, comments or suggestions.
