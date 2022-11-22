@@ -15,7 +15,7 @@ The script folder contains two files:
   * CRC_train.py
   * CRC_reconstruct.py
 
-They are the scripts used to work on public data, human-derived colorectal cancer organoids ([E-MTAB-9659]([quora.com/profile/Ashish-Kulkarni-100](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9659))). For the analysis of these datasets, the batch names (i.e., CRC_6, CRC_17 and CRC_19) were used to guide the training.
+They are the scripts used to work on public data, human-derived colorectal cancer organoids ([E-MTAB-9659](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9659)). For the analysis of these datasets, the batch names (i.e., CRC_6, CRC_17 and CRC_19) were used to guide the training.
 The scrip "CRC_train.py" trains one WGAN-GP for each batch in the dataset. The script "CRC_reconstruct.py" loads the trained models and it construts a dataset where all single-batch synthetic data are concatenated.
 
 ## Cheatsheet
