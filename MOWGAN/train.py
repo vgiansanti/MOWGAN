@@ -224,7 +224,7 @@ class train:
             ]
     
         # optimizers
-        gen_optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.5, beta_2=0.9, epsilon=1e-07)#, amsgrad=True)
+        gen_optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.5, beta_2=0.9, epsilon=1e-07, amsgrad=True)
         disc_optimizer = tf.keras.optimizers.RMSprop(0.0005)# train the model
 
         # a pandas dataframe to save the loss information to
