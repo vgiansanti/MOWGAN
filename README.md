@@ -8,9 +8,17 @@ Once trained, the generative network is used to produce a new dataset where the 
 
 ## Tutorials
 
+The notebook "MOWGAN_training.ipynb" shows, on toy datasets, how to apply MOWGAN to learn and generated coupled datasets.
+
 ## Cheatsheet
 
-Relevant functions:
+MOWGAN main function is train(). How to use it:
+
+```
+from MOWGAN.train import train
+
+train.train(data, query, n_dim, fill, n_epochs, n_samples, save_name=[])
+```
 
 ## MOWGAN workflow
 
