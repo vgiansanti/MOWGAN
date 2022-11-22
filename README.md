@@ -12,13 +12,22 @@ The notebook "MOWGAN_training.ipynb" shows, on toy datasets, how to apply MOWGAN
 
 ## Cheatsheet
 
-MOWGAN main function is train(). How to use it:
+MOWGAN main function is the train(). How to use it:
 
 ```
 from MOWGAN.train import train
 
 train.train(data, query, n_dim, fill, n_epochs, n_samples, save_name=[])
 ```
+
+where:
+* data -> list of anndata objects (e.g., data=[data1, data2])
+* query -> list of embeddings (e.g., query=['X_pca','X_umap'])
+* n_dim -> number of feature to consider in the embeddings (by default, n_dim=15)
+* fill -> list of filters for the neural network layers (by default, fill=[512,128])
+* n_epochs -> number of training epochs (by default, n_epochs=100000)
+* n_samples -> number of samples in the generated data (by default, n_samples=5000)
+* save_name -> list of names for MOWGAN data (default is save_name=[], data are saved as "anndata_1.h5ad", "anndata_2.h5ad", etc.)
 
 ## MOWGAN workflow
 
