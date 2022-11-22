@@ -39,7 +39,7 @@ Two, or more datasets, in the anndata format, are processed to filter out observ
 ### Step 2: WGAN-GP training
 To train the WGAN-GP, mini-batches are defined. Each dataset is first sorted based on the first component of the Laplacian Eigenmaps (LE). A mini-batch is define on one modality and a Bayesian ridge regressor is trained on the mini-batch embedding and the corresponding eigenvectors. The data from the remaining modalities to concatenate with the already select batch, are the ones returning the higher scores when tested with the trained Bayesian regressor.
 
-### Step 3: data reconstruction
+### Step 3: Data reconstruction
 The WGAN-GP generetor returns data in the embedding format. A kNN regressor is applied to impute the count matrix. MOWGAN outputs new data object (one for each input modality) with fixed number of cells. The number of variables (and variable names) is equal to the number of variables in the original modality. Moreover, the objects contain the imputed count matrix and the embedding learned by MOWGAN.
 
 ## Contact
