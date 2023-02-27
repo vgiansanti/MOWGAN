@@ -1,6 +1,6 @@
 # MOWGAN: Multi-Omics Wasserstein Generative Adversarial Network
 
-![Alt text](images/Mowgan_round.png | width=100)
+![Alt text](images/Mowgan_round.png)
 
 MOWGAN is a deep learning framework for the generation of synthetic paired multiomics single-cell datasets. The core component is a single Wasserstein Generative Adversarial Network with gradient penalty (WGAN-GP). Inputs are data from multi-omics experiment in unpaired observation. MOWGAN infers the most reliable coupling and train the network to learn the internal structur of the modalities.
 
