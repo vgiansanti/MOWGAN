@@ -24,16 +24,16 @@ pip install mowgan
 
 The Tutorials folder contains examples notebooks to use MOWGAN.
 * "MOWGAN_toy_training.ipynb" shows, on toy datasets, how to process the data and how to apply MOWGAN in the plain version.
-* "MOWGAN_toy_batch_training.ipynb" shows, on toy datasets, how the data should be processed to use MOWGAN with a batch information to guide the training.
-* "MOWGAN_CRC.ipynb" is the notebook with the application of MOWGAN to a real public dataset.
+* "MOWGAN_toy_batch_training.ipynb" shows, on toy datasets, how the data should be processed to use MOWGAN with some information to guide the training.
+* "MOWGAN_CRC.ipynb" is a MOWGAN application to real data.
 
 ## Data
 
-The folder contains anndata objects of public, human-derived colorectal cancer organoids data ([E-MTAB-9659](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9659)). For the analysis of these datasets, the batch names (i.e., CRC_6, CRC_17 and CRC_19) were used to guide the training. The anndata are the ones used in the "MOWGAN_CRC.ipynb" notebook.
+The folder contains anndata objects of public, human-derived colorectal cancer organoids ([E-MTAB-9659](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9659)). For the analysis of these datasets, the organoids IDs (i.e., CRC_6, CRC_17 and CRC_19) are used to guide the training. The "MOWGAN_CRC.ipynb" notebook explains how.
 
 ## Cheatsheet
 
-MOWGAN main function is the train().Two version are available, for the plain application and for the guided training. To use them:
+MOWGAN main function is the train(). Two version are available, for the plain application and for the guided training. To use them, respectively:
 
 ```
 from mowgan.train import train
