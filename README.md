@@ -17,7 +17,7 @@ conda create -n my_env python=3.9
 conda activate my_env
 python -m pip install -r requirements.txt
 ```
-Make sure the Tensorflow version is the one compatible with your machine. Than just run:
+Make sure the Tensorflow version is the one compatible with your machine. Then just run:
 
 ```
 pip install -i https://test.pypi.org/simple/ mowgan
