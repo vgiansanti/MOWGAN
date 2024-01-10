@@ -23,8 +23,8 @@ pip install mowgan
 ## Tutorials
 
 The Tutorials folder contains examples notebooks to use MOWGAN.
-* "MOWGAN_toy_training.ipynb" shows, on toy datasets, how to process datasets and apply MOWGAN to learn and generate coupled datasets.
-* "MOWGAN_toy_batch_training.ipynb" shows, on toy datasets, how the data should be processed to use MOWGAN with a batch to guide the training.
+* "MOWGAN_toy_training.ipynb" shows, on toy datasets, how to process the data and how to apply MOWGAN in the plain version.
+* "MOWGAN_toy_batch_training.ipynb" shows, on toy datasets, how the data should be processed to use MOWGAN with a batch information to guide the training.
 * "MOWGAN_CRC.ipynb" is the notebook with the application of MOWGAN to a real public dataset.
 
 ## Data
