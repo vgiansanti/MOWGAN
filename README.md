@@ -13,6 +13,8 @@ Once trained, the generative network is used to produce a new dataset where the 
 MOWGAN is available in PyPI. First, the environment shoud be configured by installing the required packages:
 
 ```
+conda create -n my_env python=3.9
+conda activate my_env
 python -m pip install -r requirements.txt
 ```
 Make sure the Tensorflow version is the one compatible with your machine. Than just run:
