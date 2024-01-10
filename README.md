@@ -15,7 +15,7 @@ MOWGAN is available in PyPI. First, the environment shoud be configured by insta
 ```
 python -m pip install -r requirements.txt
 ```
-Tensorflow is installed, but evaluate if it is the correct version for your machine. Than just run:
+Make sure the Tensorflow version is the one compatible with your machine. Than just run:
 
 ```
 pip install mowgan
