@@ -74,7 +74,7 @@ For the batch informed training, models, loss trend and anndata will be saved fo
 
 ## MOWGAN workflow
 
-![Alt text](images/Figure1.png)
+![Alt text](images/Figure_1.png)
 
 ### Step 1: Data processing
 Two, or more datasets, in the anndata format, are processed to filter out observations and variables not usefull for the analysis. Data should be normalized and scaled. It is recommended to select only variable features. In this step, we should calculate the embeddings to use in MOWGAN (e.g., the pca embedding). Moreover, it is required to run scanpy.pp.neighbors().
