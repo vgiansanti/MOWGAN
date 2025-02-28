@@ -685,7 +685,7 @@ class train_batch:
             df.to_csv(path+'gen_loss_batch_{0}'.format(j)+'.csv', index=False,header=False)
 
             model.build((None,179,2,1024))
-            model.save_weights(path+'MOWGAN_model_batch_{0}'.format(j), save_format='tf')
+            model.save_weights(path+'MOWGAN_model_batch_{0}'.format(j))
 
             samples = model.generate(tf.random.normal(shape=(n_samples,len(data), N_Z)))
             
