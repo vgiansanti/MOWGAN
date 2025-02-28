@@ -1,8 +1,0 @@
-channels:
-  - conda-forge
-  - biocoda
-dependencies:
-  - python>=3.11
-  - tensorflow>=2.18
-  - scanpy>=1.6
-  - keras>=3.8
