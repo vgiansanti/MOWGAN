@@ -114,15 +114,45 @@ class train:
     
             return train_dataset, test_dataset , N_TRAIN_BATCHES, N_TEST_BATCHES 
 
+        keras.saving.get_custom_objects().clear()
+        @keras.saving.register_keras_serializable(package="WGAN")
         class WGAN(tf.keras.Model):
 
             def __init__(self, **kwargs):
                 super(WGAN, self).__init__()
                 self.__dict__.update(kwargs)
 
-                self.gen = tf.keras.Sequential(self.gen)
-                self.disc = tf.keras.Sequential(self.disc)
-        
+                self.gen = tf.keras.Sequential(self.gen, name='generator')                
+                self.disc = tf.keras.Sequential(self.disc, name='discriminator')                
+
+            def call(self, inputs):
+                x, z = inputs
+                return self.gen(z), self.disc(x)
+            
+            def get_config(self):
+                base_config = super().get_config()
+                config = {"generator":keras.saving.serialize_keras_object(self.gen),
+                          "discriminator":keras.saving.serialize_keras_object(self.disc)}
+                return {**base_config, **config}
+
+            @classmethod
+            def from_config(cls, config):
+                gen_config = config.pop("generator")
+                disc_config = config.pop("discriminator")
+                return cls(gen=keras.saving.deserialize_keras_object(gen_config),
+                          disc=keras.saving.deserialize_keras_object(disc_config),
+                          **config)            
+
+            def build(self, input_shape):
+                input_shape = input_shape[1:]                
+                #input_shape = [None,len(data), self.n_Z]
+                if not self.gen.build:
+                    self.gen.build(input_shape)
+                gen_output_shape = self.gen.compute_output_shape(input_shape)
+                if not self.disc.build:
+                    self.disc.build(gen_output_shape)
+                super().build(input_shape)
+            
             def generate(self, z):
                 return self.gen(z)
 
@@ -199,6 +229,35 @@ class train:
                 gen_gradients, disc_gradients1 = self.compute_gradients(train_x)
                 self.apply_gradients(gen_gradients, disc_gradients1)
         
+            def save_weights(self, filepath, **kwargs):
+                """Save both generator and discriminator weights."""
+                gen_path = filepath + "_gen.weights.h5"
+                disc_path = filepath + "_disc.weights.h5"
+    
+                self.gen.save_weights(gen_path, **kwargs)
+                self.disc.save_weights(disc_path, **kwargs)
+                print(f"✅ Saved generator weights to {gen_path}")
+                print(f"✅ Saved discriminator weights to {disc_path}")
+
+            def load_weights(self, filepath, **kwargs):
+                """Load both generator and discriminator weights."""
+                gen_path = filepath + "_gen.weights.h5"
+                disc_path = filepath + "_disc.weights.h5"
+
+                # Ensure generator and discriminator are built
+                if not self.gen.built:
+                    dummy_input = tf.random.normal([1, 179, 1024])  # Adjust to match expected shape
+                    _ = self.gen(dummy_input)  # Call to build
+
+                if not self.disc.built:
+                    dummy_output = self.gen(dummy_input)  # Generate fake data
+                    _ = self.disc(dummy_output)  # Call to build
+
+                self.gen.load_weights(gen_path, **kwargs)
+                self.disc.load_weights(disc_path, **kwargs)
+                print(f"✅ Loaded generator weights from {gen_path}")
+                print(f"✅ Loaded discriminator weights from {disc_path}")
+                
         def get_model():
             return WGAN(gen = generator,
             disc = discriminator,
@@ -207,7 +266,7 @@ class train:
             n_Z = N_Z,
             gradient_penalty_weight = 10.0,
                           name='WGAN')
-              
+                            
         N_Z = 1024
 
         generator = [
@@ -260,13 +319,6 @@ class train:
     
             losses_disc.append(losses.disc_loss1.values[-1])
             losses_gen.append(losses.gen_loss.values[-1])
-    
-            # plot results
-            print(
-                    "Epoch: {} | disc_loss1: {} | gen_loss: {} ".format(
-                        epoch, losses.disc_loss1.values[-1], losses.gen_loss.values[-1]
-                    )
-                )
                                           
         df = pd.DataFrame(losses_disc)
         df.to_csv(path+'critic_loss.csv', index=False,header=False)
@@ -274,6 +326,10 @@ class train:
         df.to_csv(path+'gen_loss.csv', index=False,header=False)
 
         model.save_weights(path+'MOWGAN_model', save_format='tf')        
+          
+        model.build((None,179,2,1024))
+        model.save_weights('MOWGAN_model')
+        model.summary()      
         
         samples = model.generate(tf.random.normal(shape=(n_samples,len(data), N_Z)))
         
@@ -415,16 +471,46 @@ class train_batch:
                     )
     
                 return train_dataset, test_dataset , N_TRAIN_BATCHES, N_TEST_BATCHES 
-
+        
+            keras.saving.get_custom_objects().clear()
+            @keras.saving.register_keras_serializable(package="WGAN")
             class WGAN(tf.keras.Model):
 
                 def __init__(self, **kwargs):
                     super(WGAN, self).__init__()
                     self.__dict__.update(kwargs)
 
-                    self.gen = tf.keras.Sequential(self.gen)
-                    self.disc = tf.keras.Sequential(self.disc)
-        
+                    self.gen = tf.keras.Sequential(self.gen, name='generator')                
+                    self.disc = tf.keras.Sequential(self.disc, name='discriminator')                
+                
+                def call(self, inputs):
+                    x, z = inputs
+                    return self.gen(z), self.disc(x)
+
+                def get_config(self):
+                    base_config = super().get_config()
+                    config = {"generator":keras.saving.serialize_keras_object(self.gen),
+                              "discriminator":keras.saving.serialize_keras_object(self.disc)}
+                    return {**base_config, **config}
+
+                @classmethod
+                def from_config(cls, config):
+                    gen_config = config.pop("generator")
+                    disc_config = config.pop("discriminator")
+                    return cls(gen=keras.saving.deserialize_keras_object(gen_config),
+                              disc=keras.saving.deserialize_keras_object(disc_config),
+                              **config)            
+
+                def build(self, input_shape):
+                    input_shape = input_shape[1:]                
+                    #input_shape = [None,len(data), self.n_Z]
+                    if not self.gen.build:
+                        self.gen.build(input_shape)
+                    gen_output_shape = self.gen.compute_output_shape(input_shape)
+                    if not self.disc.build:
+                        self.disc.build(gen_output_shape)
+                    super().build(input_shape)
+            
                 def generate(self, z):
                     return self.gen(z)
 
@@ -450,10 +536,10 @@ class train_batch:
         
                     ### losses
                     disc_loss1 = (
-                        tf.reduce_mean(logits_x)
-                        - tf.reduce_mean(logits_x_gen)
-                        + d_regularizer * self.gradient_penalty_weight
-                    )
+                            tf.reduce_mean(logits_x)
+                            - tf.reduce_mean(logits_x_gen)
+                            + d_regularizer * self.gradient_penalty_weight
+                        )
 
                     # losses of fake with label "1"
                     gen_loss = tf.reduce_mean(logits_x_gen)  
@@ -465,7 +551,7 @@ class train_batch:
                     """
                     ### pass through network
                     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape1: 
-                        disc_loss1, gen_loss = self.compute_loss(x)
+                            disc_loss1, gen_loss = self.compute_loss(x)
 
                     # compute gradients
                     gen_gradients = gen_tape.gradient(gen_loss, self.gen.trainable_variables)
@@ -477,10 +563,10 @@ class train_batch:
                 def apply_gradients(self, gen_gradients, disc_gradients1): 
 
                     self.gen_optimizer.apply_gradients(
-                        zip(gen_gradients, self.gen.trainable_variables)
+                            zip(gen_gradients, self.gen.trainable_variables)
                     )
                     self.disc_optimizer.apply_gradients(
-                        zip(disc_gradients1, self.disc.trainable_variables)
+                            zip(disc_gradients1, self.disc.trainable_variables)
                     )
 
                 def gradient_penalty(self, x, x_gen):
@@ -496,12 +582,40 @@ class train_batch:
                     d_regularizer = tf.reduce_mean((ddx - 1.0) ** 2)
                     return d_regularizer
 
-
                 @tf.function
                 def train(self, train_x):
                     gen_gradients, disc_gradients1 = self.compute_gradients(train_x)
                     self.apply_gradients(gen_gradients, disc_gradients1)
         
+                def save_weights(self, filepath, **kwargs):
+                    """Save both generator and discriminator weights."""
+                    gen_path = filepath + "_gen.weights.h5"
+                    disc_path = filepath + "_disc.weights.h5"
+    
+                    self.gen.save_weights(gen_path, **kwargs)
+                    self.disc.save_weights(disc_path, **kwargs)
+                    print(f"✅ Saved generator weights to {gen_path}")
+                    print(f"✅ Saved discriminator weights to {disc_path}")
+
+                def load_weights(self, filepath, **kwargs):
+                    """Load both generator and discriminator weights."""
+                    gen_path = filepath + "_gen.weights.h5"
+                    disc_path = filepath + "_disc.weights.h5"
+
+                    # Ensure generator and discriminator are built
+                    if not self.gen.built:
+                        dummy_input = tf.random.normal([1, 179, 1024])  # Adjust to match expected shape
+                        _ = self.gen(dummy_input)  # Call to build
+
+                    if not self.disc.built:
+                        dummy_output = self.gen(dummy_input)  # Generate fake data
+                        _ = self.disc(dummy_output)  # Call to build
+
+                    self.gen.load_weights(gen_path, **kwargs)
+                    self.disc.load_weights(disc_path, **kwargs)
+                    print(f"✅ Loaded generator weights from {gen_path}")
+                    print(f"✅ Loaded discriminator weights from {disc_path}")
+                
             def get_model():
                 return WGAN(gen = generator,
                 disc = discriminator,
@@ -563,19 +677,13 @@ class train_batch:
     
                 losses_disc.append(losses.disc_loss1.values[-1])
                 losses_gen.append(losses.gen_loss.values[-1])
-    
-                # plot results
-                print(
-                        "Epoch: {} | disc_loss1: {} | gen_loss: {} ".format(
-                        epoch, losses.disc_loss1.values[-1], losses.gen_loss.values[-1]
-                        )
-                    )
                                       
             df = pd.DataFrame(losses_disc)
             df.to_csv(path+'critic_loss_batch_{0}'.format(j)+'.csv', index=False,header=False)
             df = pd.DataFrame(losses_gen)
             df.to_csv(path+'gen_loss_batch_{0}'.format(j)+'.csv', index=False,header=False)
 
+            model.build((None,179,2,1024))
             model.save_weights(path+'MOWGAN_model_batch_{0}'.format(j), save_format='tf')
 
             samples = model.generate(tf.random.normal(shape=(n_samples,len(data), N_Z)))
@@ -607,4 +715,3 @@ class train_batch:
                     data_conc.write(path+'data'+str(i)+'_MOWGAN.h5ad')
                 else:
                     data_conc.write(path+save_name[i]+'_MOWGAN.h5ad')
-
