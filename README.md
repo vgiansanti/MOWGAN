@@ -10,7 +10,8 @@ Once trained, the generative network is used to produce a new dataset where the 
 
 ## Installation
 
-MOWGAN is available in PyPI. First, the environment shoud be configured by installing the required packages:
+MOWGAN was updated to be compatible with Keras 3!! MOWGAN is available in PyPI. 
+First, the environment shoud be configured by installing the required packages:
 
 ```
 conda create -n my_env python=3.11
@@ -22,7 +23,6 @@ Make sure the Tensorflow version is the one compatible with your machine. Then j
 ```
 pip install -i https://test.pypi.org/simple/mowgan
 ```
-MOWGAN was updated to be compatible with Keras 3!!
 
 ## Tutorials
 
