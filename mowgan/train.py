@@ -17,6 +17,7 @@ from sklearn.manifold import SpectralEmbedding
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neighbors import KNeighborsRegressor
 import scipy
+import keras
 import os
 
 class train:
