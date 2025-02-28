@@ -21,7 +21,7 @@ python -m pip install -r requirements.txt
 Make sure the Tensorflow version is the one compatible with your machine. Then just run:
 
 ```
-pip install -i https://test.pypi.org/simple/mowgan
+pip install -i https://test.pypi.org/simple/ mowgan
 ```
 
 ## Tutorials
