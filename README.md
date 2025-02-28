@@ -91,7 +91,7 @@ The WGAN-GP generetor returns data in the embedding format. A kNN regressor is a
 MOWGAN is implemented in Python (>3.11) and uses tensorflow, keras, scanpy as well as the common pandas, numpy, sklearn, and scipy packages. It is recommended to run MOWGAN on GPUs. If only CPUs are available, an error message could appear. In that case, the parameter "amsgrad=True" in the generator optimizer must be removed. 
 
 ## Citation
-If you use ```MOWGAN``` in your work, please cite ```MOWGAN``` ([paper](https://academic.oup.com/bioinformatics/article/40/5/btae300/7663468)). You can cite all versions of the code by using the ([DOI](10.5281/zenodo.7875582)).
+If you use ```MOWGAN``` in your work, please cite ```MOWGAN``` ([paper](https://academic.oup.com/bioinformatics/article/40/5/btae300/7663468)). You can cite all versions of the code by using the ([DOI](https://doi.org/10.5281/zenodo.7875582)).
 
 ## Contact
 MOWGAN is maintained by Valentina Giansanti (giansanti.valentina@hsr.it) and Davide Cittaro (cittaro.davide@hsr.it). Please, reach us for problems, comments or suggestions.
