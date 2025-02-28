@@ -328,7 +328,7 @@ class train:
 
         model.save_weights(path+'MOWGAN_model', save_format='tf')        
           
-        model.build((None,179,2,1024))
+        model.build((None,179,len(data),1024))
         model.save_weights('MOWGAN_model')
         model.summary()      
         
@@ -684,7 +684,7 @@ class train_batch:
             df = pd.DataFrame(losses_gen)
             df.to_csv(path+'gen_loss_batch_{0}'.format(j)+'.csv', index=False,header=False)
 
-            model.build((None,179,2,1024))
+            model.build((None,179,len(data),1024))
             model.save_weights(path+'MOWGAN_model_batch_{0}'.format(j))
 
             samples = model.generate(tf.random.normal(shape=(n_samples,len(data), N_Z)))
@@ -711,7 +711,7 @@ class train_batch:
             data_read = []
             for j in range(len(prefixed)):
                 data_read.append(sc.read(path+prefixed[j]))
-                data_conc = data_read[0].concatenate(data_read[1:])
+                data_conc = anndata.concat(data_read, join="outer", merge="first")
                 if save_name == []:
                     data_conc.write(path+'data'+str(i)+'_MOWGAN.h5ad')
                 else:
