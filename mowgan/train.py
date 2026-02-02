@@ -3,716 +3,347 @@ github/LynnHo/DCGAN-LSGAN-WGAN-GP-DRAGAN-Tensorflow-2/ was used as a reference f
 
 """
 
-import tensorflow as tf
+import os
 import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-import pandas as pd
-import scanpy as sc
-import anndata
+import tensorflow as tf
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-import sys
+from sklearn.neighbors import KNeighborsRegressor
 from sklearn import linear_model
 from sklearn.manifold import SpectralEmbedding
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.neighbors import KNeighborsRegressor
-import scipy
-import keras
-import os
+import anndata
+import scanpy as sc
+import pickle
 
-class train:
-    def __init__(self, data, query, n_dim, fill, n_epochs, n_samples, save_name, path):
-        self.data = data   # list of anndata
-        self.query = query   # list of embeddings
-        self.n_dim = n_dim   # number of feature in the embedding --> 15
-        self.fill = fill # list of filters
-        self.n_epochs = n_epochs # number of training epochs
-        self.n_samples = n_samples # number of samples in the generated data
-        self.save_name = [] # list of names for MOWGAN data
-        self.path = "" # path to the working directory, e.g. 'my_working_directory/'
-        
-    def train(data, query, save_name, path="", n_dim=15, fill=[512,128], n_epochs=100000, n_samples=5000):    
-                
-        scaler = {}
-        data_tr = {}
-        r = {}
-        A = {}
-        L = {}
-        l = {}
-        e = {}
-        d = {}        
-        
-        for i in range(len(data)):
-            if scipy.sparse.issparse(data[i].X):
-                data[i].X = data[i].X.todense()
-            data[i].X = np.array(data[i].X).astype('float32')
-            data[i].obsm[query[i]] = data[i].obsm[query[i]].astype('float32')
-            
-            scaler['scaler_%s'%i] = MinMaxScaler().fit(data[i].obsm[query[i]][:,:n_dim])
-            data_tr['data_tr%s'%i] = scaler['scaler_%s'%i].transform(data[i].obsm[query[i]][:,:n_dim])
-            data[i].obs['spectral_emb'] = SpectralEmbedding(n_components=1,
-                                     affinity='precomputed').fit_transform(data[i].obsp['connectivities'])
-            r['r%s'%i] = data_tr['data_tr%s'%i][np.argsort(data[i].obs['spectral_emb'])]            
-            A['A%s'%i] = sc._utils.get_igraph_from_adjacency(data[i].obsp['connectivities'][np.argsort(data[i].obs['spectral_emb'])].todense(), directed=False)
-            L['L%s'%i] = np.array(A['A%s'%i].laplacian(normalized=True))   
-            l['l%s'%i],e['e%s'%i] = np.linalg.eig(L['L%s'%i])
-            d['d%s'%i] = np.real(e['e%s'%i][:,1])
-    
-        ####################
-        # Definition WGAN #
-        ####################
+class MOWGAN:
+    def __init__(self, data, query, batch=None, mode="global",
+                 n_dim=15, fill=[512,128], n_epochs=10000,
+                 n_samples=5000, save_name=None, path=""):
 
-        TRAIN_BUF=60000
-        BATCH_SIZE= 256
-        TEST_BUF=10000
-        N_TRAIN_BATCHES =int(TRAIN_BUF/BATCH_SIZE)
-        N_TEST_BATCHES = int(TEST_BUF/BATCH_SIZE) 
+        self.data = data                      # list of anndata
+        self.query = query                    # list of embeddings 
+        self.batch = batch                    # list of batch keys (only used in batch mode)
+        self.mode = mode                      # "global" or "batch"
+        self.n_dim = n_dim                    # number of features in the embedding --> 15
+        self.fill = fill                      # list of filters
+        self.n_epochs = n_epochs              # number of training epochs
+        self.n_samples = n_samples            # number of samples in the generated
+        self.save_name = save_name or []      # list of names from MOWGAN data
+        self.path = path                      # path to the working directory, e.g. 'my_working_directory'
+        self.N_Z = 1024
+        self.model = None
+        self.scalers = {}                     # store scalers per dataset/batch
 
-        def train_test(r):
-            
-            shape_0 = []
-            for i in range(len(r)):
-                shape_0.append(r['r%s'%i].shape[0])
-    
-            dMax = min(shape_0)
-            
-            rIdx = np.sort(np.random.randint(0, dMax, size=BATCH_SIZE))
-            
-            train_anchor = r['r0'][rIdx]
-            reg = linear_model.BayesianRidge()
-            reg.fit(train_anchor, d['d0'][rIdx])
-            
-            train_mod = {}            
-            train_mod['train_mod0'] = train_anchor
-            for i in range(1,len(r)):
-                score = []
-                Idx = []
-                for j in range(50):
-                    idx = np.sort(np.random.randint(0, dMax, size=BATCH_SIZE))
-                    s = reg.score(r['r%s'%i][idx],d['d%s'%i][idx])
-                    Idx.append(idx)
-                    score.append(s)
-                
-                aIdx = Idx[np.argmax(np.asarray(score))]
-                train_mod['train_mod%s'%i] = r['r%s'%i][aIdx]
-            
-            c_train = np.concatenate(list(train_mod.values()),axis=1)            
-            real_x = np.reshape(c_train, (c_train.shape[0],len(data),n_dim))
-            
-            train, test = train_test_split(real_x, test_size=0.3)
-            
-                    # batch datasets
-            train_dataset = (
-                    tf.data.Dataset.from_tensor_slices(train)
-                     #   .shuffle(TRAIN_BUF)
-                    .batch(BATCH_SIZE)
-                )
-            test_dataset = (
-                    tf.data.Dataset.from_tensor_slices(test)
-                     #   .shuffle(TEST_BUF)
-                    .batch(BATCH_SIZE)
-                )
-    
-            return train_dataset, test_dataset , N_TRAIN_BATCHES, N_TEST_BATCHES 
+    ################################
+    # Preprocess
+    ################################
+    def preprocess_batches(self):
+        for i, ad in enumerate(self.data):
 
-        keras.saving.get_custom_objects().clear()
-        @keras.saving.register_keras_serializable(package="WGAN")
-        class WGAN(tf.keras.Model):
+            # ----- Batch relabeling (only if batch mode) -----
+            if self.mode == "batch" and self.batch is not None:
+                rename_batch = {}
+                key = self.batch[0] if len(self.batch) == 1 else self.batch[i]
+                cat = ad.obs[key].cat.categories
+                for b in range(len(cat)):
+                    rename_batch[cat[b]] = str(b)
+                ad.obs['batch_train'] = ad.obs[key].map(rename_batch).astype('category')
 
-            def __init__(self, **kwargs):
-                super(WGAN, self).__init__()
-                self.__dict__.update(kwargs)
+            # ----- Dense + float32 -----
+            if hasattr(ad.X, "todense"):
+                ad.X = ad.X.toarray()
 
-                self.gen = tf.keras.Sequential(self.gen, name='generator')                
-                self.disc = tf.keras.Sequential(self.disc, name='discriminator')                
+            ad.X = np.array(ad.X).astype('float32')
+            ad.obsm[self.query[i]] = ad.obsm[self.query[i]].astype('float32')
 
-            def call(self, inputs):
-                x, z = inputs
-                return self.gen(z), self.disc(x)
-            
-            def get_config(self):
-                base_config = super().get_config()
-                config = {"generator":keras.saving.serialize_keras_object(self.gen),
-                          "discriminator":keras.saving.serialize_keras_object(self.disc)}
-                return {**base_config, **config}
+    ################################
+    # Dataset preparation
+    ################################
+    def prepare_dataset(self, batch_idx=None, BATCH_SIZE=256, TEST_SIZE=0.3):
 
-            @classmethod
-            def from_config(cls, config):
-                gen_config = config.pop("generator")
-                disc_config = config.pop("discriminator")
-                return cls(gen=keras.saving.deserialize_keras_object(gen_config),
-                          disc=keras.saving.deserialize_keras_object(disc_config),
-                          **config)            
+        data_tr, r, d = {}, {}, {}
 
-            def build(self, input_shape):
-                input_shape = input_shape[1:]                
-                #input_shape = [None,len(data), self.n_Z]
-                if not self.gen.build:
-                    self.gen.build(input_shape)
-                gen_output_shape = self.gen.compute_output_shape(input_shape)
-                if not self.disc.build:
-                    self.disc.build(gen_output_shape)
-                super().build(input_shape)
-            
-            def generate(self, z):
-                return self.gen(z)
+        for i, ad in enumerate(self.data):
+            scaler = MinMaxScaler().fit(ad.obsm[self.query[i]][:, :self.n_dim])
 
-            def discriminate(self, x):
-                return self.disc(x)
+            key = f"scaler{i}" if batch_idx is None else f"scaler{i}_{batch_idx}"
+            self.scalers[key] = scaler
+            data_tr[i] = scaler.transform(ad.obsm[self.query[i]][:, :self.n_dim])
 
-            def compute_loss(self, x):
-                """ passes through the network and computes loss
-                """
-                ### pass through network
-                # generating noise from a uniform distribution
-                z_samp = tf.random.normal([x.shape[0],len(data), self.n_Z])
-        
-                    # run noise through generator
-                x_gen = self.generate(z_samp)
+            ad.obs['spectral_emb'] = SpectralEmbedding(
+                n_components=1, affinity='precomputed'
+            ).fit_transform(ad.obsp['connectivities'])
 
-                    # discriminate x and x_gen
-                logits_x = self.discriminate(x)
-                logits_x_gen = self.discriminate(x_gen)
+            sorted_idx = np.argsort(ad.obs['spectral_emb'])
+            r[i] = data_tr[i][sorted_idx]
 
-                    # gradient penalty
-                d_regularizer = self.gradient_penalty(x, x_gen)
-        
-                    ### losses
-                disc_loss1 = (
-                        tf.reduce_mean(logits_x)
-                        - tf.reduce_mean(logits_x_gen)
-                        + d_regularizer * self.gradient_penalty_weight
-                    )
+            d[i] = np.real(np.linalg.eig(
+                sc._utils.get_igraph_from_adjacency(
+                    ad.obsp['connectivities'][sorted_idx].todense(),
+                    directed=False
+                ).laplacian(normalized=True)
+            )[1][:, 1])
 
-                # losses of fake with label "1"
-                gen_loss = tf.reduce_mean(logits_x_gen)  
-                   
-                return disc_loss1, gen_loss
+        B = min([r[i].shape[0] for i in r])
+        rIdx = np.sort(np.random.randint(0, B, size=BATCH_SIZE))
+        train_mod = {0: r[0][rIdx]}
 
-            def compute_gradients(self, x):
-                """ passes through the network and computes loss
-                """
-                ### pass through network
-                with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape1: 
-                        disc_loss1, gen_loss = self.compute_loss(x)
+        reg = linear_model.BayesianRidge()
+        reg.fit(r[0][rIdx], d[0][rIdx])
 
-                # compute gradients
-                gen_gradients = gen_tape.gradient(gen_loss, self.gen.trainable_variables)
+        for i in range(1, len(r)):
+            scores, Idx = [], []
+            for _ in range(50):
+                idx = np.sort(np.random.randint(0, B, size=BATCH_SIZE))
+                s = reg.score(r[i][idx], d[i][idx])
+                Idx.append(idx)
+                scores.append(s)
+            best_idx = Idx[np.argmax(scores)]
+            train_mod[i] = r[i][best_idx]
 
-                disc_gradients1 = disc_tape1.gradient(disc_loss1, self.disc.trainable_variables)
+        c_train = np.concatenate(list(train_mod.values()), axis=1)
+        real_x = np.reshape(c_train, (c_train.shape[0], len(self.data), self.n_dim))
 
-                return gen_gradients, disc_gradients1 
+        train, test = train_test_split(real_x, test_size=TEST_SIZE)
 
-            def apply_gradients(self, gen_gradients, disc_gradients1): 
+        train_ds = tf.data.Dataset.from_tensor_slices(train).batch(BATCH_SIZE)
+        test_ds = tf.data.Dataset.from_tensor_slices(test).batch(BATCH_SIZE)
 
-                self.gen_optimizer.apply_gradients(
-                        zip(gen_gradients, self.gen.trainable_variables)
-                )
-                self.disc_optimizer.apply_gradients(
-                        zip(disc_gradients1, self.disc.trainable_variables)
-                )
+        return train_ds, test_ds
 
-            def gradient_penalty(self, x, x_gen):
-        
-                epsilon = tf.random.uniform([x.shape[0],1, 1], 0.0, 1.0)
-                x_hat = epsilon * x + (1 - epsilon) * x_gen
-        
-                with tf.GradientTape() as t:
-                        t.watch(x_hat)
-                        d_hat = self.discriminate(x_hat)
-                gradients = t.gradient(d_hat, x_hat)
-                ddx = tf.sqrt(tf.reduce_sum(gradients ** 2, axis=[1, 2]))
-                d_regularizer = tf.reduce_mean((ddx - 1.0) ** 2)
-                return d_regularizer
-
-            @tf.function
-            def train(self, train_x):
-                gen_gradients, disc_gradients1 = self.compute_gradients(train_x)
-                self.apply_gradients(gen_gradients, disc_gradients1)
-        
-            def save_weights(self, filepath, **kwargs):
-                """Save both generator and discriminator weights."""
-                gen_path = filepath + "_gen.weights.h5"
-                disc_path = filepath + "_disc.weights.h5"
-    
-                self.gen.save_weights(gen_path, **kwargs)
-                self.disc.save_weights(disc_path, **kwargs)
-                print(f"✅ Saved generator weights to {gen_path}")
-                print(f"✅ Saved discriminator weights to {disc_path}")
-
-            def load_weights(self, filepath, **kwargs):
-                """Load both generator and discriminator weights."""
-                gen_path = filepath + "_gen.weights.h5"
-                disc_path = filepath + "_disc.weights.h5"
-
-                # Ensure generator and discriminator are built
-                if not self.gen.built:
-                    dummy_input = tf.random.normal([1, 179, 1024])  # Adjust to match expected shape
-                    _ = self.gen(dummy_input)  # Call to build
-
-                if not self.disc.built:
-                    dummy_output = self.gen(dummy_input)  # Generate fake data
-                    _ = self.disc(dummy_output)  # Call to build
-
-                self.gen.load_weights(gen_path, **kwargs)
-                self.disc.load_weights(disc_path, **kwargs)
-                print(f"✅ Loaded generator weights from {gen_path}")
-                print(f"✅ Loaded discriminator weights from {disc_path}")
-                
-        def get_model():
-            return WGAN(gen = generator,
-            disc = discriminator,
-            gen_optimizer = gen_optimizer,
-            disc_optimizer = disc_optimizer,
-            n_Z = N_Z,
-            gradient_penalty_weight = 10.0,
-                          name='WGAN')
-                            
-        N_Z = 1024
+    ################################
+    # Build WGAN-GP
+    ################################
+    def build_model(self):
 
         generator = [
-    
-                tf.keras.layers.Conv1D(filters=512, kernel_size=len(data), strides=1, padding='same', activation="relu"),    
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Conv1D(filters=128, kernel_size=len(data), strides=1, padding='same', activation="relu"),    
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Conv1D(filters=n_dim, kernel_size=len(data), strides=1, padding='same', activation="relu"),
-            ]
+            tf.keras.layers.Conv1D(512, len(self.data), padding='same', activation="relu"),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Conv1D(128, len(self.data), padding='same', activation="relu"),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Conv1D(self.n_dim, len(self.data), padding='same', activation="relu"),
+        ]
 
         discriminator = [
-                tf.keras.layers.InputLayer(input_shape=(len(data),n_dim)),
-                tf.keras.layers.Conv1D(filters=128, kernel_size=len(data), strides=1, padding='same', activation="relu"),
-                tf.keras.layers.Conv1D(filters=512, kernel_size=len(data), strides=1, padding='same', activation="relu"),
-                tf.keras.layers.Dense(units=1),
-            ]
-    
-        # optimizers
-        gen_optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.5, beta_2=0.9, epsilon=1e-07, amsgrad=True)
-        disc_optimizer = tf.keras.optimizers.RMSprop(0.0005)
+            tf.keras.layers.InputLayer(shape=(len(self.data), self.n_dim)),
+            tf.keras.layers.Conv1D(128, len(self.data), padding='same', activation="relu"),
+            tf.keras.layers.Conv1D(512, len(self.data), padding='same', activation="relu"),
+            tf.keras.layers.Dense(1),
+        ]
 
-        # a pandas dataframe to save the loss information to
-        losses = pd.DataFrame(columns = ['disc_loss1', 'gen_loss'])
-    
-        model = get_model()
-        
-        n_epochs = n_epochs
+        gen_opt = tf.keras.optimizers.Adam(0.001, beta_1=0.5, beta_2=0.9)
+        disc_opt = tf.keras.optimizers.RMSprop(0.0005)
 
-        losses_disc = []
-        losses_gen = []
-    
-        for epoch in range(n_epochs):
+        class WGAN(tf.keras.Model):
+            def __init__(self, gen, disc, gen_optimizer, disc_optimizer, n_Z, n_datasets, gp_weight=10.0):
+                super().__init__()
+                self.gen = tf.keras.Sequential(gen)
+                self.disc = tf.keras.Sequential(disc)
+                self.gen_optimizer = gen_optimizer
+                self.disc_optimizer = disc_optimizer
+                self.n_Z = n_Z
+                self.n_datasets = n_datasets
+                self.gp_weight = gp_weight
 
-            train_dataset, test_dataset, N_TRAIN_BATCHES, N_TEST_BATCHES = train_test(r)   
-    
-            # train
-            for batch, train_x in tqdm(
-                zip(range(N_TRAIN_BATCHES), train_dataset), total=N_TRAIN_BATCHES
-                ):
-                    model.train(train_x)
+            def sample_z(self, n_samples):
+                return tf.random.normal([n_samples, self.n_datasets, self.n_Z])
 
-            # test on holdout
-            loss = []
-            for batch, test_x in tqdm(
-                    zip(range(N_TEST_BATCHES), test_dataset), total=N_TEST_BATCHES
-                ):
-                loss.append(model.compute_loss(train_x))
-                losses.loc[len(losses)] = np.mean(loss, axis=0)
-    
-            losses_disc.append(losses.disc_loss1.values[-1])
-            losses_gen.append(losses.gen_loss.values[-1])
-                                          
-        df = pd.DataFrame(losses_disc)
-        df.to_csv(path+'critic_loss.csv', index=False,header=False)
-        df = pd.DataFrame(losses_gen)
-        df.to_csv(path+'gen_loss.csv', index=False,header=False)
+            def generate(self, n_samples=None, z=None):
+                if z is None:
+                    z = self.sample_z(n_samples)
+                return self.gen(z)
 
-        model.save_weights(path+'MOWGAN_model', save_format='tf')        
-          
-        model.build((None,179,len(data),1024))
-        model.save_weights('MOWGAN_model')
-        model.summary()      
-        
-        samples = model.generate(tf.random.normal(shape=(n_samples,len(data), N_Z)))
-        
-        for i in range(len(data)):
+            def compute_loss(self, x):
+                x_gen = self.generate(n_samples=x.shape[0])
+
+                logits_x = self.disc(x)
+                logits_x_gen = self.disc(x_gen)
+
+                epsilon = tf.random.uniform([x.shape[0], 1, 1])
+                x_hat = epsilon * x + (1 - epsilon) * x_gen
+
+                with tf.GradientTape() as t:
+                    t.watch(x_hat)
+                    d_hat = self.disc(x_hat)
+
+                grad = t.gradient(d_hat, x_hat)
+                gp = tf.reduce_mean((tf.sqrt(tf.reduce_sum(grad ** 2, axis=[1, 2])) - 1.0) ** 2)
+
+                disc_loss = tf.reduce_mean(logits_x) - tf.reduce_mean(logits_x_gen) + gp * self.gp_weight
+                gen_loss = tf.reduce_mean(logits_x_gen)
+
+                return disc_loss, gen_loss
+
+            @tf.function
+            def train_step(self, x):
+                with tf.GradientTape() as g_tape, tf.GradientTape() as d_tape:
+                    disc_loss, gen_loss = self.compute_loss(x)
+
+                g_grad = g_tape.gradient(gen_loss, self.gen.trainable_variables)
+                d_grad = d_tape.gradient(disc_loss, self.disc.trainable_variables)
+
+                self.gen_optimizer.apply_gradients(zip(g_grad, self.gen.trainable_variables))
+                self.disc_optimizer.apply_gradients(zip(d_grad, self.disc.trainable_variables))
+
+                return disc_loss, gen_loss
+
+            def save_weights_custom(self, filepath):
+                self.gen.save_weights(filepath + "_gen.weights.h5")
+                self.disc.save_weights(filepath + "_disc.weights.h5")
+
+        self.model = WGAN(generator, discriminator, gen_opt, disc_opt, self.N_Z, len(self.data))
+
+    ################################
+    # Training controller
+    ################################
+    def train(self):
+        if self.mode == "global":
+            self._train_one_round(batch_idx=None)
+        else:
+            n_batches = len(self.data[0].obs['batch_train'].cat.categories)
+            for j in range(n_batches):
+                print(f"\n⚡ Training batch {j}")
+                self._train_one_round(batch_idx=j)
+
+    ################################
+    # Single training round
+    ################################
+    def _train_one_round(self, batch_idx=None):
+
+        train_ds, _ = self.prepare_dataset(batch_idx)
+
+        gen_loss_history, disc_loss_history = [], []
+
+        for epoch in range(self.n_epochs):
+            g_losses, d_losses = [], []
+
+            for batch in train_ds:
+                d_loss, g_loss = self.model.train_step(batch)
+                g_losses.append(g_loss.numpy())
+                d_losses.append(d_loss.numpy())
+
+            mean_g = float(np.mean(g_losses))
+            mean_d = float(np.mean(d_losses))
+
+            gen_loss_history.append(mean_g)
+            disc_loss_history.append(mean_d)
+
+            if epoch % 100 == 0:
+                print(f"Epoch {epoch:05d} | D_loss: {mean_d:.4f} | G_loss: {mean_g:.4f}")
+
+        # ---------- Save weights ----------
+        suffix = "" if batch_idx is None else f"_batch_{batch_idx}"
+        self.model.save_weights_custom(os.path.join(self.path, f"MOWGAN_model{suffix}"))
+
+        # ---------- Save loss history ----------
+        loss_path = os.path.join(self.path, f"loss_history{suffix}.pkl")
+        with open(loss_path, "wb") as f:
+            pickle.dump({"gen_loss": gen_loss_history, "disc_loss": disc_loss_history}, f)
+        print(f"📉 Saved loss history -> {loss_path}")
+
+        # ---------- Generate samples ----------
+        self._generate_samples(batch_idx)
+
+    ################################
+    # Sample generation
+    ################################
+    def _generate_samples(self, batch_idx=None):
+        samples = self.model.generate(n_samples=self.n_samples).numpy()
+
+        for i, ad in enumerate(self.data):
+            key = f"scaler{i}" if batch_idx is None else f"scaler{i}_{batch_idx}"
+            scaler = self.scalers[key]
+
             neigh = KNeighborsRegressor(n_neighbors=2)
-            neigh.fit(data[i].obsm[query[i]][:,:n_dim], data[i].X)
-            
-            data_adata = np.array(samples[:n_samples, i])            
-            data_obsm = scaler['scaler_%s'%i].inverse_transform(data_adata)            
-            data_layers = neigh.predict(data_obsm)
-            
-            anndata_MOWGAN = anndata.AnnData(data_layers)
-            anndata_MOWGAN.obsm[query[i]] = data_obsm
-            anndata_MOWGAN.var_names = data[i].var_names
-            
-            if save_name == []:
-                save_name = ['anndata_%i'%(i+1) for i in range(len(data))]
- 
-            anndata_MOWGAN.write(path+save_name[i]+'.h5ad')
+            neigh.fit(ad.obsm[self.query[i]][:, :self.n_dim], ad.X)
 
-class train_batch:
-    def __init__(self, data, query, batch, n_dim, fill, n_epochs, n_samples, save_name, path):
-        self.data = data   # list of anndata
-        self.query = query   # list of embeddings
-        self.batch = [] # list of batch names to use in training
-        self.n_dim = n_dim   # number of feature in the embedding --> 15
-        self.fill = fill # list of filters
-        self.n_epochs = n_epochs # number of training epochs
-        self.n_samples = n_samples # number of samples in the generated data
-        self.save_name = [] # list of names for MOWGAN data
-        self.path = "" # path to the working directory, e.g. 'my_working_directory/'
-        
-    def train(data, query, batch, save_name, path="", n_dim=15, fill=[512,128], n_epochs=100000, n_samples=5000):    
-        for i in range(len(data)):            
-            
-            rename_batch = {}
-            
-            if len(batch)==1:
-                for b in range(len(data[i].obs[batch[0]].cat.categories)):
-                    rename_batch[data[i].obs[batch[0]].cat.categories[b]] = str(b)
-                    data[i].obs['batch_train'] = (
-                    data[i].obs[batch[0]]
-                    .map(rename_batch)
-                    .astype('category')
-                    )
+            data_obsm = scaler.inverse_transform(samples[:, i, :])
+            data_X = neigh.predict(data_obsm)
+
+            ad_MOWGAN = anndata.AnnData(data_X)
+            ad_MOWGAN.obsm[self.query[i]] = data_obsm
+            ad_MOWGAN.var_names = ad.var_names
+
+            if self.mode == "global":
+                name = self.save_name[i] if self.save_name else f"data{i}_MOWGAN"
             else:
-                for b in range(len(data[i].obs[batch[i]].cat.categories)):
-                    rename_batch[data[i].obs[batch[i]].cat.categories[b]] = str(b)
-            
-                data[i].obs['batch_train'] = (
-                data[i].obs[batch[i]]
-                .map(rename_batch)
-                .astype('category')
-                )
-                 
-            if scipy.sparse.issparse(data[i].X):
-                data[i].X = data[i].X.todense()    
-            
-            data[i].X = np.array(data[i].X).astype('float32')
-            data[i].obsm[query[i]] = data[i].obsm[query[i]].astype('float32')
-        
-        for j in range(len(data[0].obs['batch_train'].value_counts())):
-            print(j)
-            data_batch = {}
-            scaler = {}
-            data_tr = {}
-            r = {}
-            A = {}
-            L = {}
-            l = {}
-            e = {}
-            d = {} 
-            for i in range(len(data)):
-                
-                data_batch['data{0}_{1}'.format(i,j)] = data[i][data[i].obs['batch_train']==str(j)]
-                scaler['scaler{0}_{1}'.format(i,j)] = MinMaxScaler().fit(data_batch['data{0}_{1}'.format(i,j)].obsm[query[i]][:,:n_dim])
-                data_tr['data_tr{0}_{1}'.format(i,j)] = scaler['scaler{0}_{1}'.format(i,j)].transform(data_batch['data{0}_{1}'.format(i,j)].obsm[query[i]][:,:n_dim])
-                data_batch['data{0}_{1}'.format(i,j)].obs['spectral_emb'] = SpectralEmbedding(n_components=1,
-                                     affinity='precomputed').fit_transform(data_batch['data{0}_{1}'.format(i,j)].obsp['connectivities'])
-                r['r{0}_{1}'.format(i,j)] = data_tr['data_tr{0}_{1}'.format(i,j)][np.argsort(data_batch['data{0}_{1}'.format(i,j)].obs['spectral_emb'])]            
-                A['A{0}_{1}'.format(i,j)] = sc._utils.get_igraph_from_adjacency(data_batch['data{0}_{1}'.format(i,j)].obsp['connectivities'][np.argsort(data_batch['data{0}_{1}'.format(i,j)].obs['spectral_emb'])].todense(), directed=False)
-                L['L{0}_{1}'.format(i,j)] = np.array(A['A{0}_{1}'.format(i,j)].laplacian(normalized=True))   
-                l['l{0}_{1}'.format(i,j)],e['e{0}_{1}'.format(i,j)] = np.linalg.eig(L['L{0}_{1}'.format(i,j)])
-                d['d{0}_{1}'.format(i,j)] = np.real(e['e{0}_{1}'.format(i,j)][:,1])
-                
-            ####################
-            # Definition WGAN #
-            ####################
+                name = f"anndata{i}_{batch_idx}"
 
-            TRAIN_BUF=60000
-            BATCH_SIZE= 256
-            TEST_BUF=10000
-            N_TRAIN_BATCHES =int(TRAIN_BUF/BATCH_SIZE)
-            N_TEST_BATCHES = int(TEST_BUF/BATCH_SIZE) 
+            ad_MOWGAN.write(os.path.join(self.path, f"{name}.h5ad"))
+            print(f"✅ Saved generated data: {name}.h5ad")
 
-            def train_test(r):
-                
-                shape_0 = []
-                for i in range(len(r)):
-                    shape_0.append(r['r{0}_{1}'.format(i,j)].shape[0])
-    
-                dMax = min(shape_0)
-            
-                rIdx = np.sort(np.random.randint(0, dMax, size=BATCH_SIZE))
-            
-                train_anchor = r['r0_{0}'.format(j)][rIdx]
-                reg = linear_model.BayesianRidge()
-                reg.fit(train_anchor, d['d0_{0}'.format(j)][rIdx])
-            
-                train_mod = {}            
-                train_mod['train_mod0_{0}'.format(j)] = train_anchor
-                for i in range(1,len(r)):
-                    score = []
-                    Idx = []
-                    for k in range(50):
-                        idx = np.sort(np.random.randint(0, dMax, size=BATCH_SIZE))
-                        s = reg.score(r['r{0}_{1}'.format(i,j)][idx],d['d{0}_{1}'.format(i,j)][idx])
-                        Idx.append(idx)
-                        score.append(s)
-                
-                    aIdx = Idx[np.argmax(np.asarray(score))]
-                    train_mod['train_mod{0}_{1}'.format(i,j)] = r['r{0}_{1}'.format(i,j)][aIdx]
-            
-                c_train = np.concatenate(list(train_mod.values()),axis=1)            
-                real_x = np.reshape(c_train, (c_train.shape[0],len(data),n_dim))
-            
-                train, test = train_test_split(real_x, test_size=0.3)
-            
-                    # batch datasets
-                train_dataset = (
-                    tf.data.Dataset.from_tensor_slices(train)
-                     #   .shuffle(TRAIN_BUF)
-                    .batch(BATCH_SIZE)
-                    )
-                test_dataset = (
-                    tf.data.Dataset.from_tensor_slices(test)
-                     #   .shuffle(TEST_BUF)
-                    .batch(BATCH_SIZE)
-                    )
-    
-                return train_dataset, test_dataset , N_TRAIN_BATCHES, N_TEST_BATCHES 
-        
-            keras.saving.get_custom_objects().clear()
-            @keras.saving.register_keras_serializable(package="WGAN")
-            class WGAN(tf.keras.Model):
+    ################################
+    # Merge batch outputs
+    ################################
+    def merge_batches(self):
+        if self.mode != "batch":
+            print("Merge is only available in batch mode")
+            return
 
-                def __init__(self, **kwargs):
-                    super(WGAN, self).__init__()
-                    self.__dict__.update(kwargs)
+        for i in range(len(self.data)):
+            files = [f for f in os.listdir(self.path) if f.startswith(f"anndata{i}_")]
+            ad_list = [sc.read(os.path.join(self.path, f)) for f in files]
 
-                    self.gen = tf.keras.Sequential(self.gen, name='generator')                
-                    self.disc = tf.keras.Sequential(self.disc, name='discriminator')                
-                
-                def call(self, inputs):
-                    x, z = inputs
-                    return self.gen(z), self.disc(x)
+            if not ad_list:
+                continue
 
-                def get_config(self):
-                    base_config = super().get_config()
-                    config = {"generator":keras.saving.serialize_keras_object(self.gen),
-                              "discriminator":keras.saving.serialize_keras_object(self.disc)}
-                    return {**base_config, **config}
+            merged = anndata.concat(ad_list, label='batch')
+            save_name = self.save_name[i] if self.save_name else f"data{i}_MOWGAN"
+            merged.write(os.path.join(self.path, f"{save_name}.h5ad"))
+            print(f"✅ Merged {len(ad_list)} batches for dataset {i}")
 
-                @classmethod
-                def from_config(cls, config):
-                    gen_config = config.pop("generator")
-                    disc_config = config.pop("discriminator")
-                    return cls(gen=keras.saving.deserialize_keras_object(gen_config),
-                              disc=keras.saving.deserialize_keras_object(disc_config),
-                              **config)            
+    ################################
+    # Load saved scalers
+    ################################
+    def load_scalers(self, batch_idx=None):
+        """
+        Load saved scalers from disk.
 
-                def build(self, input_shape):
-                    input_shape = input_shape[1:]                
-                    #input_shape = [None,len(data), self.n_Z]
-                    if not self.gen.build:
-                        self.gen.build(input_shape)
-                    gen_output_shape = self.gen.compute_output_shape(input_shape)
-                    if not self.disc.build:
-                        self.disc.build(gen_output_shape)
-                    super().build(input_shape)
-            
-                def generate(self, z):
-                    return self.gen(z)
+        Args:
+            batch_idx: int or None
+                - None -> load global scalers
+                - int  -> load scalers for a specific batch
+        """
+        suffix = "" if batch_idx is None else f"_batch_{batch_idx}"
+        scaler_path = os.path.join(self.path, f"scalers{suffix}.pkl")
 
-                def discriminate(self, x):
-                    return self.disc(x)
+        if os.path.exists(scaler_path):
+            with open(scaler_path, "rb") as f:
+                batch_scalers = pickle.load(f)
+            self.scalers.update(batch_scalers)
+            mode_str = "global" if batch_idx is None else f"batch {batch_idx}"
+            print(f"✅ Loaded scalers for {mode_str} from {scaler_path}")
+        else:
+            print(f"⚠️ No scaler file found at {scaler_path}")
 
-                def compute_loss(self, x):
-                    """ passes through the network and computes loss
-                    """
-                    ### pass through network
-                    # generating noise from a uniform distribution
-                    z_samp = tf.random.normal([x.shape[0],len(data), self.n_Z])
-        
-                    # run noise through generator
-                    x_gen = self.generate(z_samp)
+    ################################
+    # Load saved generator & discriminator weights
+    ################################
+    def load_weights_custom(self, batch_idx=None):
+        """
+        Load saved weights from disk.
 
-                    # discriminate x and x_gen
-                    logits_x = self.discriminate(x)
-                    logits_x_gen = self.discriminate(x_gen)
+        Args:
+            batch_idx: int or None
+                - None -> global weights
+                - int  -> batch-specific weights
+        """
+        suffix = "" if batch_idx is None else f"_batch_{batch_idx}"
+        gen_path = os.path.join(self.path, f"MOWGAN_model{suffix}_gen.weights.h5")
+        disc_path = os.path.join(self.path, f"MOWGAN_model{suffix}_disc.weights.h5")
 
-                    # gradient penalty
-                    d_regularizer = self.gradient_penalty(x, x_gen)
-        
-                    ### losses
-                    disc_loss1 = (
-                            tf.reduce_mean(logits_x)
-                            - tf.reduce_mean(logits_x_gen)
-                            + d_regularizer * self.gradient_penalty_weight
-                        )
+        # Ensure models are built before loading
+        if not self.model.gen.built:
+            dummy_z = tf.random.normal([1, self.model.n_datasets, self.model.n_Z])
+            _ = self.model.gen(dummy_z)
 
-                    # losses of fake with label "1"
-                    gen_loss = tf.reduce_mean(logits_x_gen)  
-                   
-                    return disc_loss1, gen_loss
+        if not self.model.disc.built:
+            dummy_x = tf.random.normal([1, self.model.n_datasets, self.model.gen.output_shape[-1]])
+            _ = self.model.disc(dummy_x)
 
-                def compute_gradients(self, x):
-                    """ passes through the network and computes loss
-                    """
-                    ### pass through network
-                    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape1: 
-                            disc_loss1, gen_loss = self.compute_loss(x)
+        # Load weights
+        self.model.gen.load_weights(gen_path)
+        self.model.disc.load_weights(disc_path)
 
-                    # compute gradients
-                    gen_gradients = gen_tape.gradient(gen_loss, self.gen.trainable_variables)
-
-                    disc_gradients1 = disc_tape1.gradient(disc_loss1, self.disc.trainable_variables)
-
-                    return gen_gradients, disc_gradients1 
-
-                def apply_gradients(self, gen_gradients, disc_gradients1): 
-
-                    self.gen_optimizer.apply_gradients(
-                            zip(gen_gradients, self.gen.trainable_variables)
-                    )
-                    self.disc_optimizer.apply_gradients(
-                            zip(disc_gradients1, self.disc.trainable_variables)
-                    )
-
-                def gradient_penalty(self, x, x_gen):
-        
-                    epsilon = tf.random.uniform([x.shape[0],1, 1], 0.0, 1.0)
-                    x_hat = epsilon * x + (1 - epsilon) * x_gen
-        
-                    with tf.GradientTape() as t:
-                            t.watch(x_hat)
-                            d_hat = self.discriminate(x_hat)
-                    gradients = t.gradient(d_hat, x_hat)
-                    ddx = tf.sqrt(tf.reduce_sum(gradients ** 2, axis=[1, 2]))
-                    d_regularizer = tf.reduce_mean((ddx - 1.0) ** 2)
-                    return d_regularizer
-
-                @tf.function
-                def train(self, train_x):
-                    gen_gradients, disc_gradients1 = self.compute_gradients(train_x)
-                    self.apply_gradients(gen_gradients, disc_gradients1)
-        
-                def save_weights(self, filepath, **kwargs):
-                    """Save both generator and discriminator weights."""
-                    gen_path = filepath + "_gen.weights.h5"
-                    disc_path = filepath + "_disc.weights.h5"
-    
-                    self.gen.save_weights(gen_path, **kwargs)
-                    self.disc.save_weights(disc_path, **kwargs)
-                    print(f"✅ Saved generator weights to {gen_path}")
-                    print(f"✅ Saved discriminator weights to {disc_path}")
-
-                def load_weights(self, filepath, **kwargs):
-                    """Load both generator and discriminator weights."""
-                    gen_path = filepath + "_gen.weights.h5"
-                    disc_path = filepath + "_disc.weights.h5"
-
-                    # Ensure generator and discriminator are built
-                    if not self.gen.built:
-                        dummy_input = tf.random.normal([1, 179, 1024])  # Adjust to match expected shape
-                        _ = self.gen(dummy_input)  # Call to build
-
-                    if not self.disc.built:
-                        dummy_output = self.gen(dummy_input)  # Generate fake data
-                        _ = self.disc(dummy_output)  # Call to build
-
-                    self.gen.load_weights(gen_path, **kwargs)
-                    self.disc.load_weights(disc_path, **kwargs)
-                    print(f"✅ Loaded generator weights from {gen_path}")
-                    print(f"✅ Loaded discriminator weights from {disc_path}")
-                
-            def get_model():
-                return WGAN(gen = generator,
-                disc = discriminator,
-                gen_optimizer = gen_optimizer,
-                disc_optimizer = disc_optimizer,
-                n_Z = N_Z,
-                gradient_penalty_weight = 10.0,
-                              name='WGAN')
-              
-            N_Z = 1024
-
-            generator = [
-    
-                tf.keras.layers.Conv1D(filters=512, kernel_size=len(data), strides=1, padding='same', activation="relu"),    
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Conv1D(filters=128, kernel_size=len(data), strides=1, padding='same', activation="relu"),    
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Conv1D(filters=n_dim, kernel_size=len(data), strides=1, padding='same', activation="relu"),
-            ]
-
-            discriminator = [
-                tf.keras.layers.InputLayer(input_shape=(len(data),n_dim)),
-                tf.keras.layers.Conv1D(filters=128, kernel_size=len(data), strides=1, padding='same', activation="relu"),
-                tf.keras.layers.Conv1D(filters=512, kernel_size=len(data), strides=1, padding='same', activation="relu"),
-                tf.keras.layers.Dense(units=1),
-            ]
-    
-            # optimizers
-            gen_optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.5, beta_2=0.9, epsilon=1e-07, amsgrad=True)
-            disc_optimizer = tf.keras.optimizers.RMSprop(0.0005)# train the model
-
-            # a pandas dataframe to save the loss information to
-            losses = pd.DataFrame(columns = ['disc_loss1', 'gen_loss'])
-    
-            model = get_model()
-        
-            n_epochs = n_epochs
-
-            losses_disc = []
-            losses_gen = []
-    
-            for epoch in range(n_epochs):
-    
-                train_dataset, test_dataset, N_TRAIN_BATCHES, N_TEST_BATCHES = train_test(r)   
-    
-                # train
-                for batch, train_x in tqdm(
-                    zip(range(N_TRAIN_BATCHES), train_dataset), total=N_TRAIN_BATCHES
-                    ):
-                        model.train(train_x)
-
-                # test on holdout
-                loss = []
-                for batch, test_x in tqdm(
-                        zip(range(N_TEST_BATCHES), test_dataset), total=N_TEST_BATCHES
-                    ):
-                    loss.append(model.compute_loss(train_x))
-                    losses.loc[len(losses)] = np.mean(loss, axis=0)
-    
-                losses_disc.append(losses.disc_loss1.values[-1])
-                losses_gen.append(losses.gen_loss.values[-1])
-                                      
-            df = pd.DataFrame(losses_disc)
-            df.to_csv(path+'critic_loss_batch_{0}'.format(j)+'.csv', index=False,header=False)
-            df = pd.DataFrame(losses_gen)
-            df.to_csv(path+'gen_loss_batch_{0}'.format(j)+'.csv', index=False,header=False)
-
-            model.build((None,179,len(data),1024))
-            model.save_weights(path+'MOWGAN_model_batch_{0}'.format(j))
-
-            samples = model.generate(tf.random.normal(shape=(n_samples,len(data), N_Z)))
-            
-            for i in range(len(data)):
-                neigh = KNeighborsRegressor(n_neighbors=2)
-                neigh.fit(data[i].obsm[query[i]][:,:n_dim], data[i].X)
-            
-                data_adata = np.array(samples[:n_samples, i])            
-                data_obsm = scaler['scaler{0}_{1}'.format(i,j)].inverse_transform(data_adata)            
-                data_layers = neigh.predict(data_obsm)
-            
-                anndata_MOWGAN = anndata.AnnData(data_layers)
-                anndata_MOWGAN.obsm[query[i]] = data_obsm
-                anndata_MOWGAN.var_names = data[i].var_names
-            
-                anndata_MOWGAN.write(path+'anndata{0}_{1}'.format(i,j)+'.h5ad')  
-                
-        for i in range(len(data)):
-            if path=="":
-                prefixed = [filename for filename in os.listdir('.') if filename.startswith("anndata"+str(i))]
-            else:
-                prefixed = [filename for filename in os.listdir(path) if filename.startswith("anndata"+str(i))]
-            data_read = []
-            for j in range(len(prefixed)):
-                data_read.append(sc.read(path+prefixed[j]))
-                data_conc = anndata.concat(data_read, join="outer", merge="first")
-                if save_name == []:
-                    data_conc.write(path+'data'+str(i)+'_MOWGAN.h5ad')
-                else:
-                    data_conc.write(path+save_name[i]+'_MOWGAN.h5ad')
+        mode_str = "global" if batch_idx is None else f"batch {batch_idx}"
+        print(f"✅ Loaded generator & discriminator weights for {mode_str}")
