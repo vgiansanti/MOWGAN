@@ -110,12 +110,12 @@ trainer.merge_batches()
 ## Outputs
 
 MOWGAN saves a set of outputs when running:
-* model weights ('MOWGAN_model')
-* the critic loss trend ('critic_loss.csv')
-* the generator loss trend ('gen_loss.csv')
-* anndata objects for each modality 
+* model weights for the discriminator and the generator ('MOWGAN_model_disc_weights.h5','MOWGAN_model_gen_weights.h5')
+* the generator and discriminator loss ('loss_history.pkl')
+* anndata objects for each modality
+* Scaler model used in the preprocessing, required for the generation of data after the model has been saved ('scalers.pkl')
 
-For the batch informed training, models, loss trend and anndata will be saved for every group defined in the "batch"
+For the Batch mode, models, loss trend and anndata will be saved for every group defined in the "batch"
 
 ## MOWGAN workflow
 
