@@ -37,32 +37,75 @@ The folder contains anndata objects of public, human-derived colorectal cancer o
 
 ## Cheatsheet
 
-MOWGAN pipeline is composed of a fixed number of steps:
+MOWGAN pipeline is composed of a few steps. First of all, we need to import the package:
 
 ```
-from mowgan.train import train
-
-train.train(data, query, n_dim, fill, n_epochs, n_samples, save_name=[], path="")
+from mowgan.train import MOWGAN
 ```
 
-or
+Then:
+
+1. Initialize trainer
 
 ```
-from mowgan.train import train_batch
-
-train_batch.train(data, query, batch, n_dim, fill, n_epochs, n_samples, save_name=[], path="")
+trainer = MOWGAN(
+    data,
+    query,
+    save_name,
+    n_dim,
+    fill,
+    n_epochs,
+    path,
+    n_samples,
+    mode,
+    batch
+)
 ```
-
 where:
 * data -> list of anndata objects (e.g., data=[data1, data2])
 * query -> list of embeddings (e.g., query=['X_pca','X_umap'])
-* batch -> list of annotation to guide the training (e.g., batch=['sample','batch']) (only for batch informed training)
+* save_name -> list of names for MOWGAN data (default is save_name=[], data are saved as "anndata_1.h5ad", "anndata_2.h5ad", etc.)
 * n_dim -> number of feature to consider in the embeddings (by default, n_dim=15)
 * fill -> list of filters for the neural network layers (by default, fill=[512,128])
-* n_epochs -> number of training epochs (by default, n_epochs=100000)
-* n_samples -> number of samples in the generated data (by default, n_samples=5000)
-* save_name -> list of names for MOWGAN data (default is save_name=[], data are saved as "anndata_1.h5ad", "anndata_2.h5ad", etc.)
+* n_epochs -> number of training epochs (by default, n_epochs=10000)
 * path -> path to the working directory (e.g., "my_working_directory/")
+* n_samples -> number of samples in the generated data (by default, n_samples=5000)
+* mode -> 'global' by default, or 'batch'
+* batch -> list of annotation to guide the training (e.g., batch=['sample','batch']) (only used if mode='batch')
+
+2. Preprocess batches
+```
+trainer.preprocess_batches()
+```
+3. Build WGAN
+```
+trainer.build_model()
+```
+4. Train and generate synthetic samples
+```
+trainer.train()
+```
+5. Merge generated batch data to a single AnnData per modality (only for Batch mode)
+```
+trainer.merge_batches()
+```
+
+If more data are required after the training is complete, we can reload the saved model and ask for new samples
+
+6. Reload and save new data
+```
+trainer = MOWGAN(data,query,save_name,n_dim,fill,n_epochs,path,n_samples,mode,batch)
+trainer.build_model()
+trainer.generate_and_construct_anndata(n_samples, batch_idx)
+```
+where:
+* save_name -> shoud be different to the one used in the first trainig to not overwrite the data.
+* batch_idx -> is used in Batch mode to specify the batch for which additional data should be generated.
+
+If the last function is applied iteratively across all batches, we can again merge the generated data:
+```
+trainer.merge_batches()
+```
 
 ## Outputs
 
