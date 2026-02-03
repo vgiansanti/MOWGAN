@@ -1,6 +1,5 @@
 """
 github/LynnHo/DCGAN-LSGAN-WGAN-GP-DRAGAN-Tensorflow-2/ was used as a reference for the WGAN-GP implementation
-
 """
 
 import os
@@ -15,6 +14,7 @@ import anndata
 import scanpy as sc
 import pickle
 
+
 class MOWGAN:
     def __init__(self, data, query, batch=None, mode="global",
                  n_dim=15, fill=[512,128], n_epochs=10000,
@@ -24,12 +24,12 @@ class MOWGAN:
         self.query = query                    # list of embeddings 
         self.batch = batch                    # list of batch keys (only used in batch mode)
         self.mode = mode                      # "global" or "batch"
-        self.n_dim = n_dim                    # number of features in the embedding --> 15
+        self.n_dim = n_dim                    # number of features in the embedding
         self.fill = fill                      # list of filters
         self.n_epochs = n_epochs              # number of training epochs
         self.n_samples = n_samples            # number of samples in the generated
         self.save_name = save_name or []      # list of names from MOWGAN data
-        self.path = path                      # path to the working directory, e.g. 'my_working_directory'
+        self.path = path                      # path to the working directory
         self.N_Z = 1024
         self.model = None
         self.scalers = {}                     # store scalers per dataset/batch
@@ -108,6 +108,9 @@ class MOWGAN:
 
         train_ds = tf.data.Dataset.from_tensor_slices(train).batch(BATCH_SIZE)
         test_ds = tf.data.Dataset.from_tensor_slices(test).batch(BATCH_SIZE)
+
+        # ---------- Automatically save scalers ----------
+        self.save_scalers(batch_idx=batch_idx)
 
         return train_ds, test_ds
 
@@ -245,7 +248,7 @@ class MOWGAN:
         self._generate_samples(batch_idx)
 
     ################################
-    # Sample generation
+    # Sample generation (training)
     ################################
     def _generate_samples(self, batch_idx=None):
         samples = self.model.generate(n_samples=self.n_samples).numpy()
@@ -293,20 +296,20 @@ class MOWGAN:
             print(f"✅ Merged {len(ad_list)} batches for dataset {i}")
 
     ################################
-    # Load saved scalers
+    # Save/load scalers
     ################################
-    def load_scalers(self, batch_idx=None):
-        """
-        Load saved scalers from disk.
-
-        Args:
-            batch_idx: int or None
-                - None -> load global scalers
-                - int  -> load scalers for a specific batch
-        """
+    def save_scalers(self, batch_idx=None):
         suffix = "" if batch_idx is None else f"_batch_{batch_idx}"
         scaler_path = os.path.join(self.path, f"scalers{suffix}.pkl")
+        os.makedirs(self.path, exist_ok=True)
+        with open(scaler_path, "wb") as f:
+            pickle.dump(self.scalers, f)
+        mode_str = "global" if batch_idx is None else f"batch {batch_idx}"
+        print(f"✅ Saved scalers for {mode_str} -> {scaler_path}")
 
+    def load_scalers(self, batch_idx=None):
+        suffix = "" if batch_idx is None else f"_batch_{batch_idx}"
+        scaler_path = os.path.join(self.path, f"scalers{suffix}.pkl")
         if os.path.exists(scaler_path):
             with open(scaler_path, "rb") as f:
                 batch_scalers = pickle.load(f)
@@ -317,22 +320,13 @@ class MOWGAN:
             print(f"⚠️ No scaler file found at {scaler_path}")
 
     ################################
-    # Load saved generator & discriminator weights
+    # Load saved weights
     ################################
     def load_weights_custom(self, batch_idx=None):
-        """
-        Load saved weights from disk.
-
-        Args:
-            batch_idx: int or None
-                - None -> global weights
-                - int  -> batch-specific weights
-        """
         suffix = "" if batch_idx is None else f"_batch_{batch_idx}"
         gen_path = os.path.join(self.path, f"MOWGAN_model{suffix}_gen.weights.h5")
         disc_path = os.path.join(self.path, f"MOWGAN_model{suffix}_disc.weights.h5")
 
-        # Ensure models are built before loading
         if not self.model.gen.built:
             dummy_z = tf.random.normal([1, self.model.n_datasets, self.model.n_Z])
             _ = self.model.gen(dummy_z)
@@ -341,9 +335,48 @@ class MOWGAN:
             dummy_x = tf.random.normal([1, self.model.n_datasets, self.model.gen.output_shape[-1]])
             _ = self.model.disc(dummy_x)
 
-        # Load weights
         self.model.gen.load_weights(gen_path)
         self.model.disc.load_weights(disc_path)
-
         mode_str = "global" if batch_idx is None else f"batch {batch_idx}"
         print(f"✅ Loaded generator & discriminator weights for {mode_str}")
+
+    ################################
+    # Fully reconstruct AnnData from loaded weights
+    ################################
+    def generate_and_construct_anndata(self, n_samples=None, batch_idx=None):
+        n_samples = n_samples or self.n_samples
+
+        # 1️⃣ Load weights and scalers
+        self.load_weights_custom(batch_idx=batch_idx)
+        self.load_scalers(batch_idx=batch_idx)
+
+        # 2️⃣ Generate samples
+        samples = self.model.generate(n_samples=n_samples).numpy()
+
+        # 3️⃣ Reconstruct features and build AnnData
+        for i, ad in enumerate(self.data):
+            key = f"scaler{i}" if batch_idx is None else f"scaler{i}_{batch_idx}"
+            scaler = self.scalers[key]
+
+            # Inverse transform to embedding space
+            data_obsm = scaler.inverse_transform(samples[:, i, :])
+
+            # Map back to original feature space using KNN
+            neigh = KNeighborsRegressor(n_neighbors=2)
+            neigh.fit(ad.obsm[self.query[i]][:, :self.n_dim], ad.X)
+            data_X = neigh.predict(data_obsm)
+
+            # Construct AnnData
+            ad_MOWGAN = anndata.AnnData(data_X)
+            ad_MOWGAN.obsm[self.query[i]] = data_obsm
+            ad_MOWGAN.var_names = ad.var_names
+
+            # Determine save name
+            if self.mode == "global":
+                name = self.save_name[i] if self.save_name else f"data{i}_MOWGAN"
+            else:
+                name = f"anndata{i}_{batch_idx}"
+
+            # Save
+            ad_MOWGAN.write(os.path.join(self.path, f"{name}.h5ad"))
+            print(f"✅ Saved generated data: {name}.h5ad")
