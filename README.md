@@ -10,7 +10,7 @@ Once trained, the generative network is used to produce a new dataset where the 
 
 ## Installation
 
-MOWGAN was updated to be compatible with Keras 3!! 
+MOWGAN has been updated with many new functions!
 MOWGAN is available in PyPI. First, the environment shoud be configured by installing the required packages:
 
 ```
@@ -24,20 +24,20 @@ Make sure the Tensorflow version is the one compatible with your machine. Then j
 pip install -i https://test.pypi.org/simple/ mowgan
 ```
 
-## Tutorials
+## Tutorial
 
-The Tutorials folder contains examples notebooks to use MOWGAN.
-* "MOWGAN_toy_training.ipynb" shows, on toy datasets, how to process the data and how to apply MOWGAN in the plain version.
-* "MOWGAN_toy_batch_training.ipynb" shows, on toy datasets, how the data should be processed to use MOWGAN with some information to guide the training.
-* "MOWGAN_CRC.ipynb" is a MOWGAN application to real data.
+The `Tutorial.ipynb` notebook provides a practical example of how to use **MOWGAN**. It is divided into two modes:
+
+- **Global mode** – the entire dataset is used jointly for training.
+- **Batch mode** – batch information is taken into account for batch-specific training.
 
 ## Data
 
-The folder contains anndata objects of public, human-derived colorectal cancer organoids ([E-MTAB-9659](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9659)). For the analysis of these datasets, the organoids IDs (i.e., CRC_6, CRC_17 and CRC_19) are used to guide the training. The "MOWGAN_CRC.ipynb" notebook explains how.
+The folder contains anndata objects of public, human-derived colorectal cancer organoids ([E-MTAB-9659](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9659)). For the analysis of these datasets, the organoids IDs (i.e., CRC_6, CRC_17 and CRC_19) are used to guide the training in the **Batch mode**, as explained in the tutorial.
 
 ## Cheatsheet
 
-MOWGAN main function is the train(). Two version are available, for the plain application and for the guided training. To use them, respectively:
+MOWGAN pipeline is composed of a fixed number of steps:
 
 ```
 from mowgan.train import train
